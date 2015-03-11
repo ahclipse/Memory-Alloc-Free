@@ -66,7 +66,6 @@ void* Mem_Init(int regionSize, int slabSize)
   
   initialized = 1;
   
-  //TODO create slab
   //TODO assuming instuctors are nice and slab size fits well in a quarter of the 
   //	allocated space
   nextRegionStartAddr = .25*(regionSize)+memStart;
@@ -90,9 +89,20 @@ void* Mem_Init(int regionSize, int slabSize)
 
 void init_slab( int slabSize, void* s_regionStart,  int s_regionSize)
 {
+  void * nextSlab, currSlab;
+
   slabHead = s_regionStart;
   
-  slabHead
+  currSlab = s_regionStart;  
+  nextSlab = currSlab + slabSize;
+
+  while( nextSlab - s_regionStart < s_regionSize)
+  {
+    *currSlab = nextSlab; 
+    currSlab = nextSlab;
+    nextSlab = currSlab + slabSize;
+  }
+  *currSlab = NULL;
 }
 
 void* Mem_Alloc(int size)
