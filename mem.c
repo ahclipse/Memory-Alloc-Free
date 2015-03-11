@@ -5,7 +5,12 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <string.h>
-#include "mem.h"
+#include "mymem.h"
+
+
+void init_slab( int, void*);
+void* Mem_alloc_slab();
+void* Mem_Alloc_nextFit(int);
 
 typedef struct block_hd{
   /* The blocks are maintained as a linked list */
@@ -31,26 +36,33 @@ typedef struct block_hd{
 }block_header;
 
 block_header* list_head = NULL;
-void* nextRegionStartAddress;
+void* nextRegionStartAddr;
 void* slabHead = NULL;
-
+int allocated_once = 0;
+void* nextRegionAddr;
+int s_regionSize; 
+int globalSlabSize;
 
 void* Mem_Init(int regionSize, int slabSize)
 {
   int fd;
-  int alloc_size;
+  //int alloc_size;
   void* memStart;
-  int nextRegionOffset;
-  static int initialized = 0;
-  
+  //int nextRegionOffset;
+  //static int initialized = 0;
+   
   if(0 != allocated_once)
   {
     return NULL;
   }
-  if(sizeOfRegion <= 0)
+  if(regionSize <= 0)
   {
     return NULL;
   }
+
+  //Set the value of the slab region
+  s_regionSize = (int)(.25 * regionSize); 
+  globalSlabSize = slabSize;
 
   //mmap to allocate memory
   fd = open("/dev/zero", O_RDWR);
@@ -59,16 +71,17 @@ void* Mem_Init(int regionSize, int slabSize)
     return NULL;
   }
   memStart = mmap(NULL, regionSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
-  if (MAP_FAILED == space_ptr)
+  if (MAP_FAILED == memStart)
   {
     return NULL;
   }
   
-  initialized = 1;
+  allocated_once = 1;
   
   //TODO assuming instuctors are nice and slab size fits well in a quarter of the 
   //	allocated space
-  nextRegionStartAddr = .25*(regionSize)+memStart;
+  //	Going to Have to figure out a way to do below operation..
+  nextRegionStartAddr = (int)(.25*(regionSize)) + memStart;
   
   if(slabSize <= 0)
   {
@@ -81,33 +94,35 @@ void* Mem_Init(int regionSize, int slabSize)
     return NULL;
   }
 
+  //Initialization of next fit memory 
   list_head = (block_header*)(nextRegionAddr);
   list_head->next = NULL;
   
   return memStart;
 }
 
-void init_slab( int slabSize, void* s_regionStart,  int s_regionSize)
+void init_slab( int slabSize, void* s_regionStart)
 {
-  void * nextSlab, currSlab;
+  void * nextSlab;
+  void * currSlab;
 
   slabHead = s_regionStart;
   
   currSlab = s_regionStart;  
-  nextSlab = currSlab + slabSize;
+  nextSlab = (void *)(currSlab + slabSize);
 
   while( nextSlab - s_regionStart < s_regionSize)
   {
-    *currSlab = nextSlab; 
-    currSlab = nextSlab;
-    nextSlab = currSlab + slabSize;
+   // *currSlab = nextSlab; 
+    //currSlab = nextSlab;
+   /// nextSlab = currSlab + slabSize;
   }
-  *currSlab = NULL;
+ // *currSlab = NULL;
 }
 
 void* Mem_Alloc(int size)
 {
-  if( size == slabSize)
+  if( size == globalSlabSize)
     return Mem_alloc_slab();
   else
     return Mem_Alloc_nextFit(size);
@@ -134,8 +149,8 @@ void* Mem_Alloc_nextFit(int size)
   }
 
   /* align size with 4 bytes */
-  if( size % 4 != 0)
-    buff_size = size + ( 4 - ( size % 4) );
+  if( size % 16 != 0)
+    buff_size = size + ( 16 - ( size % 16) );
   else
     buff_size = size;
 
@@ -325,6 +340,19 @@ int Mem_Free_nextFit(void *ptr)
   /* all blocks checked and block matching ptr not found */
   return -1;
 }
+
+
+
+
+void* Mem_alloc_slab()
+{
+  return NULL;
+}
+
+
+
+
+
 
 /* Function to be used for debug */
 /* Prints out a list of all the blocks along with the following information for each block */

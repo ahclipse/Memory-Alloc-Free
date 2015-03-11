@@ -2,18 +2,18 @@
 #include <unistd.h>
 #include <string.h>
 #include "mymem.h"
+#include <stdlib.h> 
 
 int main(int argc, char * argv[])
 {
-  int regionSize;
-  int slabSize;
- 
-  //TODO: Hardcode different slab and region sizes here... 
+  int regionSize = 8192;
+  int slabSize = 256;
+  void * mem; 
 
-  /*
-  *Call different functions being tested somewhere below here V
-  */
+  if((mem = Mem_Init(regionSize, slabSize)) != NULL)
+  {
+    Mem_Dump();
+  }
 
-  
   exit(0);
 }
