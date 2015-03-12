@@ -35,11 +35,16 @@ typedef struct block_hd{
 
 }block_header;
 
-block_header* list_head = NULL;
-void* nextRegionStartAddr;
-void* slabHead = NULL;
+
 int allocated_once = 0;
-void* nextRegionAddr;
+
+//bookmark of where we left off last
+block_header* list_head = NULL;
+void* slabHead = NULL;
+
+void* nextRegionStartAddr;
+void* slabRegionStartAddr;
+
 int s_regionSize; 
 int globalSlabSize;
 
@@ -95,7 +100,8 @@ void* Mem_Init(int regionSize, int slabSize)
   }
 
   //Initialization of next fit memory 
-  list_head = (block_header*)(nextRegionAddr);
+  list_head = (block_header*)(nextRegionStartAddr);
+  list_head->size = (int)(.75*regionsize)- sizeof(block_header);
   list_head->next = NULL;
   
   return memStart;
@@ -107,7 +113,8 @@ void init_slab( int slabSize, void* s_regionStart)
   void * currSlab;
 
   slabHead = s_regionStart;
-  
+  slabRegionStartAddr = s_regionStart;  
+
   currSlab = s_regionStart;  
   nextSlab = (void *)(currSlab + slabSize);
 
@@ -140,7 +147,8 @@ void* Mem_Alloc_nextFit(int size)
 {
   block_header *current;
   block_header *newblock;
-  block_header *bestfit = NULL;
+  block_header *fit = NULL;
+  block_header *start;
   int buff_size;
   int leftover;
 
@@ -150,36 +158,45 @@ void* Mem_Alloc_nextFit(int size)
 
   /* align size with 4 bytes */
   if( size % 16 != 0)
-    buff_size = size + ( 16 - ( size % 16) );
+    buff_size = size + ( 16 - ( size % 16) ) + sizeof(block_header);
   else
-    buff_size = size;
+    buff_size = size + sizeof(block_header);
 
   /* initialize current */
   current = list_head;
+  start = list_head;
+
+  if( current->size_status >= size)
+  {
+    fit = current;
+  }
+  
+  if( current->next == NULL && fit == NULL)   
+  {
+    current = nextRegionStartAddr;//start of nextfitspace
+  }
+  else
+  {
+    current = current->next;
+  } 
 
   /* find a single available block that has size bits */
-  while(bestfit == NULL)
+  while(start != current && fit == NULL)
   {
   /* if block is available */
     if(current->size_status % 2 != 1)
     {
-      /* no better fit than exact */
-      if( current->size_status == buff_size )
+      /* no better fit than exact */     
+      if( current->size_status >=  buff_size)
       {
-        current->size_status++;
-        return current + 1;
-      }
-      
-      if( current->size_status > buff_size)
-      {
-        bestfit = current;
+        fit = current;
       }
     }
 
     /* true if at end of the list,with no value that fits */
-    if( current->next == NULL && bestfit == NULL)   
+    if( current->next == NULL && fit == NULL)   
     {
-      return NULL;
+      current = nextRegionStartAddr;//start of nextfitspace
     }
     else
     {
@@ -188,45 +205,21 @@ void* Mem_Alloc_nextFit(int size)
 
   }
 
-  /* Look through the rest of the list besiides last element for fit*/
-  while( current != NULL )
-  {
-    /* if block is available*/
-    if(current->size_status % 2 != 1)
-    {
-      /* No better fit than exact */
-      if( current->size_status == buff_size )
-      {
-        current->size_status++;
-        return current + 1;
-      }
-      
-      if( current->size_status > buff_size
-         && current->size_status < bestfit->size_status )
-      {
-        bestfit = current;
-      }
-    }
-    current = current->next;
-  }
-
   /*Is block big enough for request, header, and smallest requestable size(4)*/
-  if(  bestfit->size_status >= buff_size + (int)sizeof(block_header) + 4 )
-  {
-    newblock = (block_header *)( (( char *) (bestfit + 1)) + buff_size  ) ;  
+  newblock = (block_header *)( (( char *) (fit + 1)) + buff_size  ) ;  
 
   /*Remaining space in blcok, status will be zero by default because aligned*/
-    leftover = bestfit->size_status - buff_size - (int)sizeof(block_header);
-    newblock->size_status = leftover;
+  leftover = fit->size_status - buff_size;
+  newblock->size_status = leftover;
     
-    newblock->next = bestfit->next;
-    bestfit->next = newblock;
-    bestfit->size_status = buff_size;
-  }
-  
+  newblock->next = fit->next;
+  fit->next = newblock;
+  fit->size_status = buff_size;
+  list_head = newblock;  
+
 /* To indicate the block is busy*/
-  bestfit->size_status++;
-  return bestfit + 1;
+  fit->size_status++;
+  return fit + 1;
  
 }
 
