@@ -42,11 +42,14 @@ int allocated_once = 0;
 block_header* list_head = NULL;
 void* slabHead = NULL;
 
+//start of regions
 void* nextRegionStartAddr;
 void* slabRegionStartAddr;
 
 int s_regionSize; 
 int globalSlabSize;
+
+int totalMemSize;
 
 void* Mem_Init(int regionSize, int slabSize)
 {
@@ -68,6 +71,7 @@ void* Mem_Init(int regionSize, int slabSize)
   //Set the value of the slab region
   s_regionSize = (int)(.25 * regionSize); 
   globalSlabSize = slabSize;
+  totalMemSize = regionSize;
 
   //mmap to allocate memory
   fd = open("/dev/zero", O_RDWR);
@@ -133,6 +137,19 @@ void* Mem_Alloc(int size)
     return Mem_alloc_slab();
   else
     return Mem_Alloc_nextFit(size);
+}i
+
+int Mem_Free(void *ptr){
+  if( ptr < slabRegionStartAddr || ptr > (void *)(slabRegionStartAddr + totalMemSize) )
+  {
+    printf("SEGFAULT\n");
+    return -1;
+  }
+
+  if( ptr < nextRegionStartAddr )
+    return Mem_Free_nextFit(ptr);
+  else
+    return Mem_Free_slab(ptr);
 }
 
 /* Function for allocating 'size' bytes. */
@@ -243,7 +260,7 @@ int Mem_Free_nextFit(void *ptr)
     return -1;
 
   /* Set up *ptr so it points to header not block itself */
-  ptr = ((char *) ptr) - 8;
+  ptr = ((char *) ptr) - sizeof(block_header);
 
   /*if block is not busy something is wrong
   
