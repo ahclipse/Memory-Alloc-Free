@@ -7,4 +7,4 @@ mem: mem.c mymem.h test.c
 	gcc -lmem -L. -o tester test.c -Wall -g
 
 clean:
-	rm -rf mem.o libmem.so tester
+	rm -rf mem.o libmem.so test.o tester
