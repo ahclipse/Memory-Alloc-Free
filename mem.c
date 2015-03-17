@@ -18,11 +18,9 @@ int allocated_once = 0;
 
 //bookmark of where we left off last
 struct FreeHeader* nf_marker = NULL;
-struct FreeHeader* s_marker = NULL;
 
 //Head and tail free slab list
 struct FreeHeader* s_head;
-struct FreeHeader* s_tail;
 
 //Head and tail free nf list
 struct FreeHeader* nf_head;
@@ -77,19 +75,32 @@ void* Mem_Init(int regionSize, int slabSize)
   //	allocated space
   //	Going to Have to figure out a way to do below operation..
   nextRegionStartAddr = (int)(.25*(regionSize)) + memStart;
-  nextRegionStartAddr = memStart;
   if(slabSize <= 0)
   {
     return NULL;
   }
 
-  init_slab(slabSize , slabRegionStartAddr);
-  assert( s_head != s_head->next);
-  if( s_head == NULL || s_tail == NULL)
+  //init Slab
+  struct FreeHeader* nextSlab;
+  struct FreeHeader* currSlab;
+
+  s_head = (struct FreeHeader *)( memStart);
+  slabRegionStartAddr = (char *)( memStart);  
+
+  currSlab = s_head;
+  //currSlab->length = slabSize - sizeof(struct FreeHeader);  
+  nextSlab = (struct FreeHeader*)((char*)currSlab + slabSize);
+
+  while( ((char *)(nextSlab) - (char *)(memStart)) < s_regionSize)
   {
-    return NULL;
+    currSlab->next = nextSlab; 
+    currSlab = nextSlab;
+    nextSlab = (struct FreeHeader*)((char*)currSlab + slabSize);
   }
+  currSlab->next = NULL;
+
   assert( s_head != s_head->next);
+  
   //Initialization of next fit memory 
   nf_marker = (struct FreeHeader*)(nextRegionStartAddr);
   nf_head = nf_marker;
@@ -99,32 +110,8 @@ void* Mem_Init(int regionSize, int slabSize)
   nf_marker->next = nf_marker;
   
   assert( s_head != s_head->next);
-
+  printf("init complete\n");
   return memStart;
-}
-
-void init_slab( int slabSize, void* s_regionStart)
-{
-  struct FreeHeader* nextSlab;
-  struct FreeHeader* currSlab;
-
-  s_head = (struct FreeHeader *)( s_regionStart);
-  s_marker = s_head;
-  slabRegionStartAddr = (char *)(s_regionStart);  
-
-  currSlab = s_head;
-  //currSlab->length = slabSize - sizeof(struct FreeHeader);  
-  nextSlab = (struct FreeHeader*)((char*)currSlab + slabSize);
-
-  while( ((char *)(nextSlab) - (char *)(s_regionStart)) < s_regionSize)
-  {
-    currSlab->next = nextSlab; 
-    currSlab = nextSlab;
-    nextSlab = (struct FreeHeader*)((char*)currSlab + slabSize);
-  }
-  currSlab->next = s_head;
-  s_tail = currSlab;
-  assert(s_tail->next == s_head); 
 }
 
 void* Mem_Alloc(int size)
@@ -257,30 +244,18 @@ int Mem_Free_nextFit(void *ptr)
 
 void* Mem_Alloc_slab()
 {
+  printf("start Alloc");
   if( s_head == NULL)
     return Mem_Alloc_nextFit( globalSlabSize ); 
   // slab_head always free unless null
-  struct FreeHeader* currSlab = s_marker;
-  struct FreeHeader* prevSlab = currSlab;
+  struct FreeHeader* currSlab = s_head;
   //iterate over until the node before is found
   //Last Free slot
-  if( currSlab == currSlab->next )
-  {
-    s_marker = NULL;
-    s_head = NULL;
-    s_tail = NULL;
-  }
-  else
-  {
-    while( prevSlab->next != currSlab )
-    {
-      prevSlab = prevSlab->next;
-    }
-    prevSlab->next = currSlab->next;
-    s_marker = prevSlab->next;
-  }
+  s_head = currSlab->next;//will be NULL if last itme in list 
   //zero mem
   memset( (void *)(currSlab), '0', globalSlabSize );
+  assert( NULL != s_head);
+  printf("finish alloc\n");
   return (void *)(currSlab);
 }
 
@@ -299,26 +274,16 @@ int Mem_Free_slab( void * ptr)
 
   struct FreeHeader * currSlab = (struct FreeHeader *)(ptr);
   //If we were empty before
-  if( s_marker == NULL)
+  if( s_head == NULL)
   { 
     s_head = currSlab;
-    s_tail = currSlab;
-    s_marker = currSlab;
     currSlab->next = currSlab;
     return 0;
   }
   else if( currSlab < s_head)//lower address than current lowest address
   {
-    s_tail->next = currSlab;
     currSlab->next = s_head;
     s_head = ptr;
-    return 0;
-  }
-  else if( currSlab > s_tail)//higher address than current highest address
-  {
-    s_tail->next = currSlab;
-    currSlab->next = s_head;
-    s_tail = currSlab;
     return 0;
   }
   else
@@ -326,7 +291,7 @@ int Mem_Free_slab( void * ptr)
     //slab should only exist between already existing free slabs
     struct FreeHeader * prev = s_head;
     struct FreeHeader * start = s_head; //to avoid infinite loop
-    while( !(prev < currSlab && prev->next > currSlab) )//do until prev is before curr and the node after prev is after currSlab
+    while( !(prev < currSlab && (prev->next > currSlab || prev->next == NULL) ))//do until prev is before curr and the node after prev is after currSlab
     {
       prev = prev->next;
       if( start == prev )
@@ -353,12 +318,12 @@ void Mem_Dump()
   int i = 0;
 
   printf("======== START TEST ========\n");
-  printf("%d\t%p\n------------------------\n",i, (void*)(start) );
+  printf("%d\t%p\t%p\n------------------------\n",i, (void*)(start),(void*)(start->next ));
   curr = curr->next;
   i++;
-  while( curr != start )
+  while( curr != NULL )
   {
-    printf("%d\t%p\n-----------------------\n",i, (void*)(curr));
+    printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(curr),(void*)(curr->next));
     curr = curr->next;
     i++;
   } 
