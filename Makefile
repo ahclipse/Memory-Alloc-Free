@@ -1,9 +1,10 @@
 all: mem
 
 mem: mem.c mymem.h test.c
-	gcc -c -Wall -m32 -fpic mem.c -O
-	gcc -shared -Wall -m32 -o libmem.so mem.o -O
-	gcc -lmem -L. -Wall -m32 test.c -O -o tester 
+	gcc -c -fpic mem.c -Wall -g
+	gcc -shared -o libmem.so mem.o
+	export LD_LIBRARY_PATH=.
+	gcc -lmem -L. -o tester test.c -Wall -g
 
 clean:
 	rm -rf mem.o libmem.so tester
