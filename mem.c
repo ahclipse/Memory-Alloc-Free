@@ -29,8 +29,7 @@ struct FreeHeader* nf_tail;
 //start of regions
 char* nextRegionStartAddr;
 char* slabRegionStartAddr;
-
-int s_regionSize; 
+ 
 int globalSlabSize;
 
 int totalMemSize;
@@ -53,7 +52,7 @@ void* Mem_Init(int regionSize, int slabSize)
   }
 
   //Set the value of the slab region
-  s_regionSize = (int)(.25 * regionSize); 
+  int s_regionSize = (int)(.25 * regionSize); 
   globalSlabSize = slabSize;
   totalMemSize = regionSize;
 
@@ -116,6 +115,9 @@ void* Mem_Init(int regionSize, int slabSize)
 
 void* Mem_Alloc(int size)
 {
+  if(size <= 0 || !allocated_once )
+    return NULL;
+
   if( size == globalSlabSize)
     return Mem_Alloc_slab();
   else
@@ -137,7 +139,59 @@ int Mem_Free(void *ptr){
 
 void* Mem_Alloc_nextFit(int size)
 {
-  return NULL;
+
+  struct FreeHeader* currHeader = nf_marker;
+  struct FreeHeader* prevHeader = currHeader;
+
+  //if first node is not big enough
+  if( currHeader->length < size  )
+  {
+    //find the first node that fits
+    currHeader = currHeader->next;
+    while( currHeader != nf_marker && currHeader->length < size  )
+    {
+      currHeader = currHeader->next;
+    }
+
+    // Already checked this and there is not enough room
+    // Nothing found of the right size
+    if(currHeader == nf_marker)
+    {
+      return NULL;
+    }
+  }
+  //split if need be
+
+  //enough room for current request another header and some data(16 byte aligned)
+  if( currHeader->length > size + sizeof(struct AllocatedHeader) + 16)
+  {
+    int originalSize = currHeader->length;//error checking
+    
+    struct FreeHeader* newHeader = (struct FreeHeader *)( (char *)(currHeader + 1) + size );
+
+    newHeader->next = currHeader->next;
+    currHeader->next = newHeader;
+
+    newHeader->length = currHeader->length - (size + sizeof(struct FreeHeader));
+    currHeader->length = size;
+
+    assert(currHeader->length + sizeof(struct FreeHeader) + (currHeader->next)->length == originalSize);
+  }
+  
+  //get node before the current one
+  while(prevHeader->next != currHeader)
+  {
+    prevHeader = prevHeader->next;
+    assert(prevHeader != NULL);
+    assert(prevHeader != currHeader);
+  }
+  prevHeader->next = currHeader->next;
+
+  //change header of curr to be allocated
+  ((struct AllocatedHeader *)currHeader)->magic = (void *)(MAGIC);
+
+  //return acutal address beyond block header
+  return currHeader +1;//becasuse the header sizes are the same
 }
 
 int Mem_Free_nextFit(void *ptr)
