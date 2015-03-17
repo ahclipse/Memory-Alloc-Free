@@ -140,111 +140,43 @@ void* Mem_Alloc_nextFit(int size)
   return NULL;
 }
 
+
+/****************************************************************************************************/
 int Mem_Free_nextFit(void *ptr)
 {
-  /* Pointers to block headers /
-  block_header *previous;
-  block_header *current;
-  int header_size;
-  
-  if( ptr == NULL)
-    return -1;
+  //Check to see if valid nextFit pointer is given
+  char * nPtr = ((char *)ptr) - sizeof(struct AllocatedHeader); 
+  struct AllocatedHeader * freeRequest = (struct AllocatedHeader *)(nPtr); 
 
-  // Set up *ptr so it points to header not block itself /
-  ptr = ((char *) ptr) - sizeof(block_header);
-
-  //if block is not busy something is wrong
-  
- // if ptr doest point to a header it would still -1 as would 
- // failing this test, there is nothing lost by checking this before checking
-  //if it is present in list
-  if( ((block_header *) ptr)->size_status % 2 == 0 )
+  //Is given pointer a valid AllocatedHeader???
+  if(freeRequest->magic != MAGIC)
   {
-    return -1;
+    return -1; 
   }
 
-  current = list_head;
-  header_size = (int)sizeof(block_header);
-
-// if first block is the block to be freed /
-  if( current == ptr )
+  //start at the front of the list
+  struct FreeHeader * start = s_head;
+ 
+  //Check if freeRequest occurs after the head in memory
+  if(freeRequest > start)
   {
-    if( current->next != NULL && current->next->size_status % 2 == 0)
-    {
-   // coalesce blocks /
-      current->size_status += current->next->size_status + header_size ;
-      current->next = current->next->next;
-    }
 
-  // Mark as free block /
-    current->size_status --;  
-    return 0;
+
+
+
   }
-
-  // set up  previous 
-  previous = current;
-  current = current->next;
-
-  while(  current->next != NULL )
+  //Else the freeRequest occurs before the FreeHeader list  
+  else
   {
-    // If the current blcok is the one we want
-    if( current == ptr)
-    {
-      if(previous->size_status % 2 == 0 && current->next->size_status % 2 == 0)
-      { 
-       // Coalesce blocks and set status to free
-        previous->size_status+= current->size_status -1;
-        previous->size_status +=  2*header_size +current->next->size_status;	
-        previous->next = current->next->next;
-      }
-      else if( previous->size_status % 2 == 0)
-      {
-      //Coalesce blocks and set status to free /
-        previous->size_status += current->size_status + header_size -1;
-        previous->next = current->next;
-      }
-      else if( current->next->size_status % 2 == 0 )
-      {
-      //Coalesce blocks and set status to free /
-        current->size_status += current->next->size_status + header_size -1;
-        current->next = current->next->next;
-      }
-      else
-      {
-        // Size status as free
-        current->size_status--;
-      }
-      return 0;
-    }
 
-    // Set block_headers for next loop iteration 
-    previous = current;
-    current = current->next;
-  }
 
-  // At end of the list check final block 
-  if( current == ptr)
-  {
-    if( previous->size_status % 2 == 0)
-    {
-      previous->size_status += current->size_status + header_size -1;
-      previous->next = NULL;
-    }
-    else
-    {
-      current->size_status--;
-    }
 
-    return 0;
-  }
-
-  // all blocks checked and block matching ptr not found */
+  } 
   return -1;
 }
 
 void* Mem_Alloc_slab()
 {
-  printf("start Alloc");
   if( s_head == NULL)
     return Mem_Alloc_nextFit( globalSlabSize ); 
   // slab_head always free unless null
