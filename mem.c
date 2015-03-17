@@ -9,38 +9,20 @@
 
 
 void init_slab( int, void*);
-void* Mem_alloc_slab();
+void* Mem_Alloc_slab();
 void* Mem_Alloc_nextFit(int);
-
-typedef struct block_hd{
-  /* The blocks are maintained as a linked list */
-  /* The blocks are ordered in the increasing order of addresses */
-  struct block_hd* next;
-
-  /* size of the block is always a multiple of 4 */
-  /* ie, last two bits are always zero - can be used to store other information*/
-  /* LSB = 0 => free block */
-  /* LSB = 1 => allocated/busy block */
-
-  /* So for a free block, the value stored in size_status will be the same as the block size*/
-  /* And for an allocated block, the value stored in size_status will be one more than the block size*/
-
-  /* The value stored here does not include the space required to store the header */
-
-  /* Example: */
-  /* For a block with a payload of 24 bytes (ie, 24 bytes data + an additional 8 bytes for header) */
-  /* If the block is allocated, size_status should be set to 25, not 24!, not 23! not 32! not 33!, not 31! */
-  /* If the block is free, size_status should be set to 24, not 25!, not 23! not 32! not 33!, not 31! */
-  int size_status;
-
-}block_header;
-
+int Mem_Free_nextFit(void *);
+int Mem_Free_slab(void *);
 
 int allocated_once = 0;
 
 //bookmark of where we left off last
-block_header* list_head = NULL;
-void* slabHead = NULL;
+struct FreeHeader *list_head = NULL;
+void** slab_head = NULL;
+
+//Head and tail free slab list
+void** s_head;
+void** s_tail;
 
 //start of regions
 void* nextRegionStartAddr;
@@ -98,14 +80,14 @@ void* Mem_Init(int regionSize, int slabSize)
   }
 
   init_slab(slabSize ,nextRegionStartAddr);
-  if( slabHead == NULL )
+  if( slab_head == NULL )
   {
     return NULL;
   }
 
   //Initialization of next fit memory 
-  list_head = (block_header*)(nextRegionStartAddr);
-  list_head->size = (int)(.75*regionsize)- sizeof(block_header);
+  list_head = (struct FreeHeader*)(nextRegionStartAddr);
+  list_head->length = (int)(.75*regionSize)- sizeof(struct FreeHeader);
   list_head->next = NULL;
   
   return memStart;
@@ -113,31 +95,33 @@ void* Mem_Init(int regionSize, int slabSize)
 
 void init_slab( int slabSize, void* s_regionStart)
 {
-  void * nextSlab;
-  void * currSlab;
+  void** nextSlab;
+  void** currSlab;
 
-  slabHead = s_regionStart;
+  slab_head = s_regionStart;
   slabRegionStartAddr = s_regionStart;  
 
+  s_head = s_regionStart;
   currSlab = s_regionStart;  
   nextSlab = (void *)(currSlab + slabSize);
 
-  while( nextSlab - s_regionStart < s_regionSize)
+  while( *nextSlab - s_regionStart <= s_regionSize)
   {
-   // *currSlab = nextSlab; 
-    //currSlab = nextSlab;
-   /// nextSlab = currSlab + slabSize;
+    *currSlab = nextSlab; 
+    currSlab = nextSlab;
+    nextSlab = (void **)(currSlab + slabSize);
   }
- // *currSlab = NULL;
+  *currSlab = s_regionStart;
+  s_tail = currSlab;
 }
 
 void* Mem_Alloc(int size)
 {
   if( size == globalSlabSize)
-    return Mem_alloc_slab();
+    return Mem_Alloc_slab();
   else
     return Mem_Alloc_nextFit(size);
-}i
+}
 
 int Mem_Free(void *ptr){
   if( ptr < slabRegionStartAddr || ptr > (void *)(slabRegionStartAddr + totalMemSize) )
@@ -146,112 +130,20 @@ int Mem_Free(void *ptr){
     return -1;
   }
 
-  if( ptr < nextRegionStartAddr )
+  if( ptr >= nextRegionStartAddr )
     return Mem_Free_nextFit(ptr);
   else
     return Mem_Free_slab(ptr);
 }
 
-/* Function for allocating 'size' bytes. */
-/* Returns address of allocated block on success */
-/* Returns NULL on failure */
-/* Here is what this function should accomplish */
-/* - Check for sanity of size - Return NULL when appropriate */
-/* - Round up size to a multiple of 4 */
-/* - Traverse the list of blocks and allocate the best free block which can accommodate the requested size */
-/* -- Also, when allocating a block - split it into two blocks when possible */
 void* Mem_Alloc_nextFit(int size)
 {
-  block_header *current;
-  block_header *newblock;
-  block_header *fit = NULL;
-  block_header *start;
-  int buff_size;
-  int leftover;
-
-  if( size < 1  ){
-    return NULL;
-  }
-
-  /* align size with 4 bytes */
-  if( size % 16 != 0)
-    buff_size = size + ( 16 - ( size % 16) ) + sizeof(block_header);
-  else
-    buff_size = size + sizeof(block_header);
-
-  /* initialize current */
-  current = list_head;
-  start = list_head;
-
-  if( current->size_status >= size)
-  {
-    fit = current;
-  }
-  
-  if( current->next == NULL && fit == NULL)   
-  {
-    current = nextRegionStartAddr;//start of nextfitspace
-  }
-  else
-  {
-    current = current->next;
-  } 
-
-  /* find a single available block that has size bits */
-  while(start != current && fit == NULL)
-  {
-  /* if block is available */
-    if(current->size_status % 2 != 1)
-    {
-      /* no better fit than exact */     
-      if( current->size_status >=  buff_size)
-      {
-        fit = current;
-      }
-    }
-
-    /* true if at end of the list,with no value that fits */
-    if( current->next == NULL && fit == NULL)   
-    {
-      current = nextRegionStartAddr;//start of nextfitspace
-    }
-    else
-    {
-      current = current->next;
-    }
-
-  }
-
-  /*Is block big enough for request, header, and smallest requestable size(4)*/
-  newblock = (block_header *)( (( char *) (fit + 1)) + buff_size  ) ;  
-
-  /*Remaining space in blcok, status will be zero by default because aligned*/
-  leftover = fit->size_status - buff_size;
-  newblock->size_status = leftover;
-    
-  newblock->next = fit->next;
-  fit->next = newblock;
-  fit->size_status = buff_size;
-  list_head = newblock;  
-
-/* To indicate the block is busy*/
-  fit->size_status++;
-  return fit + 1;
- 
+  return NULL;
 }
 
-/* Function for freeing up a previously allocated block */
-/* Argument - ptr: Address of the block to be freed up */
-/* Returns 0 on success */
-/* Returns -1 on failure */
-/* Here is what this function should accomplish */
-/* - Return -1 if ptr is NULL */
-/* - Return -1 if ptr is not pointing to the first byte of a busy block */
-/* - Mark the block as free */
-/* - Coalesce if one or both of the immediate neighbours are free */
 int Mem_Free_nextFit(void *ptr)
 {
-  /* Pointers to block headers */
+  /* Pointers to block headers /
   block_header *previous;
   block_header *current;
   int header_size;
@@ -259,14 +151,14 @@ int Mem_Free_nextFit(void *ptr)
   if( ptr == NULL)
     return -1;
 
-  /* Set up *ptr so it points to header not block itself */
+  // Set up *ptr so it points to header not block itself /
   ptr = ((char *) ptr) - sizeof(block_header);
 
-  /*if block is not busy something is wrong
+  //if block is not busy something is wrong
   
-  if ptr doest point to a header it would still -1 as would 
-  failing this test, there is nothing lost by checking this before checking
-  if it is present in list*/
+ // if ptr doest point to a header it would still -1 as would 
+ // failing this test, there is nothing lost by checking this before checking
+  //if it is present in list
   if( ((block_header *) ptr)->size_status % 2 == 0 )
   {
     return -1;
@@ -275,63 +167,63 @@ int Mem_Free_nextFit(void *ptr)
   current = list_head;
   header_size = (int)sizeof(block_header);
 
-/* if first block is the block to be freed */
+// if first block is the block to be freed /
   if( current == ptr )
   {
     if( current->next != NULL && current->next->size_status % 2 == 0)
     {
-   /* coalesce blocks */
+   // coalesce blocks /
       current->size_status += current->next->size_status + header_size ;
       current->next = current->next->next;
     }
 
-  /* Mark as free block */
+  // Mark as free block /
     current->size_status --;  
     return 0;
   }
 
-  /* set up  previous */
+  // set up  previous 
   previous = current;
   current = current->next;
 
   while(  current->next != NULL )
   {
-    /* If the current blcok is the one we want */
+    // If the current blcok is the one we want
     if( current == ptr)
     {
       if(previous->size_status % 2 == 0 && current->next->size_status % 2 == 0)
       { 
-       /* Coalesce blocks and set status to free*/
+       // Coalesce blocks and set status to free
         previous->size_status+= current->size_status -1;
         previous->size_status +=  2*header_size +current->next->size_status;	
         previous->next = current->next->next;
       }
       else if( previous->size_status % 2 == 0)
       {
-      /*Coalesce blocks and set status to free */
+      //Coalesce blocks and set status to free /
         previous->size_status += current->size_status + header_size -1;
         previous->next = current->next;
       }
       else if( current->next->size_status % 2 == 0 )
       {
-      /*Coalesce blocks and set status to free */
+      //Coalesce blocks and set status to free /
         current->size_status += current->next->size_status + header_size -1;
         current->next = current->next->next;
       }
       else
       {
-        /* Size status as free*/
+        // Size status as free
         current->size_status--;
       }
       return 0;
     }
 
-    /* Set block_headers for next loop iteration */
+    // Set block_headers for next loop iteration 
     previous = current;
     current = current->next;
   }
 
-  /* At end of the list check final block */
+  // At end of the list check final block 
   if( current == ptr)
   {
     if( previous->size_status % 2 == 0)
@@ -347,21 +239,89 @@ int Mem_Free_nextFit(void *ptr)
     return 0;
   }
 
-  /* all blocks checked and block matching ptr not found */
+  // all blocks checked and block matching ptr not found */
   return -1;
 }
 
-
-
-
-void* Mem_alloc_slab()
+void* Mem_Alloc_slab()
 {
-  return NULL;
+  if( slab_head == NULL)
+    return Mem_Alloc_nextFit( globalSlabSize ); 
+  // slab_head always free unless null
+  void** currSlab = slab_head;
+  void** prevSlab = currSlab;
+  //iterate over until the node before is found
+  //Last Free slot
+  if( currSlab == *currSlab )
+  {
+    slab_head = NULL; 
+  }
+  else
+  {
+    while( *prevSlab != currSlab )
+    {
+      prevSlab = *prevSlab;
+    }
+    *prevSlab = *currSlab;
+    slab_head = *prevSlab;
+  }
+  //zero mem
+  memset( currSlab, '0', globalSlabSize );
+  return currSlab;
 }
 
+int Mem_Free_slab( void * ptrIn)
+{
+  void ** ptr = (void **) ptrIn;
+  //TODO check if this makes sense especially at first allocation
+  if( (*ptr - slabRegionStartAddr) % globalSlabSize != 0)
+    return -1;
 
+  if( *ptr < slabRegionStartAddr || *ptr >= nextRegionStartAddr )
+    return -1;
 
+  //If we were empty before
+  if( slab_head == NULL)
+  { 
+    slab_head = ptr;
+    *ptr = ptr;
+    return 0;
+  }
+  else if( ptr < s_head)//lower address than current lowest address
+  {
+    *s_tail = ptr;
+    *ptr = s_head;
+    s_head = ptr;
+    return 0;
+  }
+  else if( ptr > s_tail)//higher address than current highest address
+  {
+    *s_tail = ptr;
+    *ptr = s_head;
+    s_tail = ptr;
+    return 0;
+  }
+  else
+  {
+    //slab should only exist between already existing free slabs
+    void** prev = slab_head;
+    void** start = slab_head; //to avoid infinite loop
+    while( !(prev < ptr && (void **)(*prev) > ptr) )//do this until it's true
+    {
+      prev = *prev;
+      if( start == prev )
+      {
+        printf("Could not find slab location in list\n");
+        return -1;
+      }
+    }
 
+    *ptr = *prev;
+    *prev = ptr;
+    return 0; 
+  }
+
+}
 
 
 /* Function to be used for debug */
@@ -375,57 +335,5 @@ void* Mem_alloc_slab()
 /* t_Begin  : Address of the first byte in the block (this is where the header starts) */
 void Mem_Dump()
 {
-  int counter;
-  block_header* current = NULL;
-  char* t_Begin = NULL;
-  char* Begin = NULL;
-  int Size;
-  int t_Size;
-  char* End = NULL;
-  int free_size;
-  int busy_size;
-  int total_size;
-  char status[5];
 
-  free_size = 0;
-  busy_size = 0;
-  total_size = 0;
-  current = list_head;
-  counter = 1;
-  fprintf(stdout,"************************************Block list***********************************\n");
-  fprintf(stdout,"No.\tStatus\tBegin\t\tEnd\t\tSize\tt_Size\tt_Begin\n");
-  fprintf(stdout,"---------------------------------------------------------------------------------\n");
-  while(NULL != current)
-  {
-    t_Begin = (char*)current;
-    Begin = t_Begin + (int)sizeof(block_header);
-    Size = current->size_status;
-    strcpy(status,"Free");
-    if(Size & 1) /*LSB = 1 => busy block*/
-    {
-      strcpy(status,"Busy");
-      Size = Size - 1; /*Minus one for ignoring status in busy block*/
-      t_Size = Size + (int)sizeof(block_header);
-      busy_size = busy_size + t_Size;
-    }
-    else
-    {
-      t_Size = Size + (int)sizeof(block_header);
-      free_size = free_size + t_Size;
-    }
-    End = Begin + Size;
-    fprintf(stdout,"%d\t%s\t0x%08lx\t0x%08lx\t%d\t%d\t0x%08lx\n",counter,status,(unsigned long int)Begin,(unsigned long int)End,Size,t_Size,(unsigned long int)t_Begin);
-    total_size = total_size + t_Size;
-    current = current->next;
-    counter = counter + 1;
-  }
-  fprintf(stdout,"---------------------------------------------------------------------------------\n");
-  fprintf(stdout,"*********************************************************************************\n");
-
-  fprintf(stdout,"Total busy size = %d\n",busy_size);
-  fprintf(stdout,"Total free size = %d\n",free_size);
-  fprintf(stdout,"Total size = %d\n",busy_size+free_size);
-  fprintf(stdout,"*********************************************************************************\n");
-  fflush(stdout);
-  return;
 }
