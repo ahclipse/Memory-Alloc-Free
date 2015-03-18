@@ -267,6 +267,59 @@ void* Mem_Alloc_nextFit(int size)
 
 
 /****************************************************************************************************/
+
+void coalesce(struct FreeHeader * prev, struct FreeHeader * curr, struct FreeHeader * next)
+{
+  
+  if( (char *)(prev + 1)+prev->length == (char *)curr && (char *)(curr + 1)+curr->length == (char *)(next) )
+  {
+     //coalesce prev, curr, and next
+     prev->next = next->next;
+     prev->length = (2*sizeof(struct FreeHeader)) + curr->length + next->length + prev->length;
+     if(  next == nf_tail || curr == nf_tail)
+     {
+       nf_tail = prev;
+     }  
+
+     if( next == nf_marker)
+     {
+       nf_marker = prev;
+     }
+  }
+  else if( (char *)(prev + 1)+prev->length == (char *)curr)
+  {
+    //coalsce prev and curr
+    prev->next == curr->next;
+    prev->length = sizeof( struct FreeHeader ) + curr->length + prev->length;
+
+    if(  curr == nf_tail)
+    {
+      nf_tail = prev;
+    }  
+  }
+  else if( (char *)(curr + 1)+curr->length == (char *)(next) )
+  {
+    //coalesce curr and next
+    curr->next = next->next;
+    curr->length = sizeof( struct FreeHeader) + curr->length + next->length;
+
+    if(  next == nf_tail )
+     {
+       nf_tail = curr;
+     }  
+
+     if( next == nf_marker)
+     {
+       nf_marker = curr;
+     }
+  }
+  else
+  {
+    //coalesce none
+  }
+  return;
+}
+
 int Mem_Free_nextFit(void *ptr)
 {
   //Check to see if valid nextFit pointer is given
@@ -299,13 +352,15 @@ int Mem_Free_nextFit(void *ptr)
     freeRequestF->next = nf_head;
     nf_head = freeRequestF;
     nf_tail->next = freeRequestF; 
+    coalesce(nf_tail, freeRequestF, freeRequestF->next);
     pthread_mutex_unlock(&lock);
     return 0;      
   }
   else if((char*)freeRequestA > (char*)nf_tail)
   {
     freeRequestF->next = nf_head;
-    nf_tail->next = freeRequestF; 
+    nf_tail->next = freeRequestF;
+    coalesce( nf_tail, freeRequestF, freeRequestF->next); 
     nf_tail = freeRequestF; 
     pthread_mutex_unlock(&lock);
     return 0;         
@@ -313,22 +368,23 @@ int Mem_Free_nextFit(void *ptr)
   else
   {
     struct FreeHeader * search = nf_head; 
-    while(!((char*)search < (char*)freeRequestF && (char*)(search->next) > (char*)freeRequestF))
-    {
-      if((char*)search->next == (char*)nf_tail)
+    while(! ((char*)search < (char*)freeRequestF && (char*)(search->next) > (char*)freeRequestF))
+    { 
+      search = search->next;
+      if((char*)search == (char*)nf_tail)
       {
         pthread_mutex_unlock(&lock);
         return -1;
       }
-      search = search->next;
     }
     freeRequestF->next = search->next;
     search->next = freeRequestF; 
+    coalesce( search, freeRequestF, freeRequestF->next);
     pthread_mutex_unlock(&lock);
     return 0; 
   }
   //Else some error, return -1 
-  //pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(&lock);
   return -1;
 }
 /*************************************************************************************************/
