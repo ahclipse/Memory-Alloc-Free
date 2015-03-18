@@ -38,8 +38,18 @@ int totalMemSize;
 //Lock for concurrent processes 
 pthread_mutex_t lock;
 
+int makeMultiple16( int input )
+{
+  if( input % 16 != 0)
+  {
+    input = input + (16 - (input % 16) );
+  }
+  return input;
+}
+
 void* Mem_Init(int regionSize, int slabSize)
 {
+  pthread_mutex_lock(&lock);
   int fd;
   //int alloc_size;
   void* memStart;
@@ -54,6 +64,9 @@ void* Mem_Init(int regionSize, int slabSize)
   {
     return NULL;
   }
+
+  regionSize = makeMultiple16( regionSize );
+  slabSize = makeMultiple16( slabSize );
 
   //Set the value of the slab region
   int s_regionSize = (int)(.25 * regionSize); 
@@ -114,6 +127,7 @@ void* Mem_Init(int regionSize, int slabSize)
   
   assert( s_head != s_head->next);
   printf("init complete\n");
+  pthread_mutex_unlock(&lock);
   return memStart;
 }
 
@@ -134,7 +148,6 @@ void* Mem_Alloc(int size)
     {
       size = size + (16 - (size % 16)); 
     }
-    pthread_mutex_lock(&lock);
     return Mem_Alloc_nextFit(size);
   }
 }
@@ -184,7 +197,7 @@ void* Mem_Alloc_nextFit(int size)
   //split if need be
 
   //enough room for current request another header and some data(16 byte aligned)
-  if( currHeader->length > size + sizeof(struct AllocatedHeader) + 16)
+  if( currHeader->length > size + sizeof(struct AllocatedHeader) )
   {
     int originalSize = currHeader->length;//error checking
     
@@ -208,9 +221,21 @@ void* Mem_Alloc_nextFit(int size)
   }
   prevHeader->next = currHeader->next;
 
+  if( currHeader == nf_head )
+  {
+    nf_head = prevHeader->next;
+  }
+
+  if( currHeader == nf_tail )
+  {
+    nf_tail = prevHeader;
+  }
+
+  nf_marker = prevHeader->next;
+
   //change header of curr to be allocated
   ((struct AllocatedHeader *)currHeader)->magic = (void *)(MAGIC);
-
+  
   //return acutal address beyond block header
   pthread_mutex_unlock(&lock);
   return currHeader +1;//becasuse the header sizes are the same
@@ -265,7 +290,6 @@ void* Mem_Alloc_slab()
   s_head = currSlab->next;//will be NULL if last itme in list 
   //zero mem
   memset( (void *)(currSlab), '0', globalSlabSize );
-  assert( NULL != s_head);
   printf("finish alloc\n");
   pthread_mutex_unlock(&lock);
   return (void *)(currSlab);
