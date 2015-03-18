@@ -247,35 +247,32 @@ int Mem_Free_nextFit(void *ptr)
 {
   //Check to see if valid nextFit pointer is given
   char * nPtr = ((char *)ptr) - sizeof(struct AllocatedHeader); 
-  struct AllocatedHeader * freeRequest = (struct AllocatedHeader *)(nPtr); 
+  struct AllocatedHeader * freeRequestA = (struct AllocatedHeader *)(nPtr); 
+
+  //The struct to be freed casted as a FreeHeader 
+  struct FreeHeader * freeRequestF = (struct FreeHeader *)(freeRequestA); 
+
 
   //Is given pointer a valid AllocatedHeader???
-  if((freeRequest->magic) != (void *)MAGIC)
+  if((freeRequestA->magic) != (void *)MAGIC)
   {
     pthread_mutex_unlock(&lock);
     return -1; 
   }
-
-  //start at the front of the list
-  struct FreeHeader * start = s_head;
  
   //Check if freeRequest occurs after the head in memory
-  if(freeRequest > (struct AllocatedHeader *)start)
+  if((char *)freeRequestA < (char *)nf_head)
   {
-    
-
-
-
+    //Since it is before the head, make this struct the new header, and point to the old one
+    freeRequestF->next = nf_head;
+    nf_head = freeRequestF;
+    nf_tail->next = freeRequestF; 
+    pthread_mutex_unlock(&lock);
+    return 0;      
   }
-  //Else the freeRequest occurs before the FreeHeader list  
-  else
-  {
-
-
-
-  } 
+ 
   pthread_mutex_unlock(&lock);
-  return -1;
+  return -99;
 }
 /*************************************************************************************************/
 
@@ -379,13 +376,13 @@ void Mem_Dump()
   printf("%d\t%p\t%p\t%d\n------------------------\n",i, (void*)(nfstart),(void*)(nfstart->next ), nfstart->length);
   nfcurr = nfcurr->next;
   i++;
-  while( nfcurr->next != nfstart )
+  while( nfcurr->next != nfstart && i < 10)
   {
     printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(nfcurr),(void*)(nfcurr->next));
     nfcurr = nfcurr->next;
     i++;
   } 
 
-  printf("\n%d\n", (nfcurr->length)); 
+  printf("\nHERE IS THE TAIL\t%p\n\n", (void*)(nf_tail)); 
  
 }
