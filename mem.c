@@ -228,7 +228,7 @@ void* Mem_Alloc_nextFit(int size)
   }
   
   //get node before the current one
-  while(prevHeader->next != currHeader)
+  while(prevHeader->next != currHeader )
   {
     prevHeader = prevHeader->next;
     assert(prevHeader != NULL);
@@ -392,7 +392,10 @@ int Mem_Free_nextFit(void *ptr)
 void* Mem_Alloc_slab()
 {
   if( s_head == NULL)
+  {
+    printf("full slab\n");
     return Mem_Alloc_nextFit( globalSlabSize ); 
+  }
   // slab_head always free unless null
   struct FreeHeader* currSlab = s_head;
   //iterate over until the node before is found
@@ -433,7 +436,7 @@ int Mem_Free_slab( void * ptr)
   else if( currSlab < s_head)//lower address than current lowest address
   {
     currSlab->next = s_head;
-    s_head = ptr;
+    s_head = currSlab;
     pthread_mutex_unlock(&lock);
     return 0;
   }
@@ -471,14 +474,20 @@ void Mem_Dump()
   int i = 0;
 
   printf("======== START TEST ========\n");
-  printf("%d\t%p\t%p\n------------------------\n",i, (void*)(start),(void*)(start->next ));
-  curr = curr->next;
-  i++;
-  while( curr != NULL )
+  if( s_head == NULL){
+    printf("No free Slabs\n");
+  }
+  else
   {
-    printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(curr),(void*)(curr->next));
+    printf("%d\t%p\t%p\n------------------------\n",i, (void*)(start),(void*)(start->next ));
     curr = curr->next;
     i++;
+    while( curr != NULL )
+    {
+      printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(curr),(void*)(curr->next));
+      curr = curr->next;
+      i++;
+    }
   }
 
   struct FreeHeader * nfstart = nf_head;
