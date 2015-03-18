@@ -55,6 +55,16 @@ void* Mem_Init(int regionSize, int slabSize)
     return NULL;
   }
 
+  if(regionSize % 16 != 0 )
+  {
+    regionSize = regionSize + (16 - (regionSize % 16)); 
+  }
+
+  if(slabSize % 16 != 0 )
+  {
+    slabSize = slabSize + (16 - (slabSize % 16)); 
+  }
+
   //Set the value of the slab region
   int s_regionSize = (int)(.25 * regionSize); 
   globalSlabSize = slabSize;
@@ -184,7 +194,7 @@ void* Mem_Alloc_nextFit(int size)
   //split if need be
 
   //enough room for current request another header and some data(16 byte aligned)
-  if( currHeader->length > size + sizeof(struct AllocatedHeader) + 16)
+  if( currHeader->length > size + sizeof(struct AllocatedHeader))
   {
     int originalSize = currHeader->length;//error checking
     
@@ -208,8 +218,15 @@ void* Mem_Alloc_nextFit(int size)
   }
   prevHeader->next = currHeader->next;
 
+  nf_head = currHeader->next;
+
+
   //change header of curr to be allocated
   ((struct AllocatedHeader *)currHeader)->magic = (void *)(MAGIC);
+
+  nf_marker = prevHeader->next;
+
+  
 
   //return acutal address beyond block header
   pthread_mutex_unlock(&lock);
@@ -265,7 +282,7 @@ void* Mem_Alloc_slab()
   s_head = currSlab->next;//will be NULL if last itme in list 
   //zero mem
   memset( (void *)(currSlab), '0', globalSlabSize );
-  assert( NULL != s_head);
+
   printf("finish alloc\n");
   pthread_mutex_unlock(&lock);
   return (void *)(currSlab);
