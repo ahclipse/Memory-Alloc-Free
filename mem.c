@@ -49,8 +49,7 @@ int makeMultiple16( int input )
 
 void* Mem_Init(int regionSize, int slabSize)
 {
-  pthread_mutex_lock(&lock);
-  int fd;
+   int fd;
   //int alloc_size;
   void* memStart;
   //int nextRegionOffset;
@@ -64,6 +63,9 @@ void* Mem_Init(int regionSize, int slabSize)
   {
     return NULL;
   }
+  
+  pthread_mutex_init(&lock , NULL);
+  pthread_mutex_lock(&lock);
 
   regionSize = makeMultiple16( regionSize );
   slabSize = makeMultiple16( slabSize );
@@ -77,11 +79,13 @@ void* Mem_Init(int regionSize, int slabSize)
   fd = open("/dev/zero", O_RDWR);
   if(-1 == fd)
   {
+    pthread_mutex_unlock(&lock);
     return NULL;
   }
   memStart = mmap(NULL, regionSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
   if (MAP_FAILED == memStart)
   {
+    pthread_mutex_unlock(&lock);
     return NULL;
   }
   
@@ -93,6 +97,7 @@ void* Mem_Init(int regionSize, int slabSize)
   nextRegionStartAddr = (int)(.25*(regionSize)) + memStart;
   if(slabSize <= 0)
   {
+    pthread_mutex_unlock(&lock);
     return NULL;
   }
 
@@ -133,12 +138,15 @@ void* Mem_Init(int regionSize, int slabSize)
 
 void* Mem_Alloc(int size)
 {
+  pthread_mutex_lock(&lock);
   if(size <= 0 || !allocated_once )
+  {
+    pthread_mutex_unlock(&lock);
     return NULL;
+  }
 
   if( size == globalSlabSize)
   {
-    pthread_mutex_lock(&lock);
     return Mem_Alloc_slab(); 
   }
   else
@@ -153,19 +161,20 @@ void* Mem_Alloc(int size)
 }
 
 int Mem_Free(void *ptr){
+
+  pthread_mutex_lock(&lock);
   if( (char *)(ptr)  < slabRegionStartAddr || (char *)(ptr) > (char *)(slabRegionStartAddr + totalMemSize) )
   {
     printf("SEGFAULT\n");
+    pthread_mutex_unlock(&lock);
     return -1;
   }
   if( (char *)(ptr) >= nextRegionStartAddr )
   {
-    pthread_mutex_lock(&lock);
     return Mem_Free_nextFit(ptr);
   }
   else
   {
-    pthread_mutex_lock(&lock);
     return Mem_Free_slab(ptr);
   }
 }
@@ -178,7 +187,10 @@ void* Mem_Alloc_nextFit(int size)
 
   //empty list
   if(nf_marker == NULL)
+  {
+    pthread_mutex_unlock(&lock);
     return NULL;
+  }
 
   //if first node is not big enough
   if( currHeader->length < size  )
@@ -368,6 +380,7 @@ int Mem_Free_slab( void * ptr)
 
 void Mem_Dump()
 { 
+  pthread_mutex_lock(&lock);
   struct FreeHeader * start = s_head;
   struct FreeHeader * curr = start;
   int i = 0;
@@ -405,5 +418,5 @@ void Mem_Dump()
   } 
 
   printf("\nHERE IS THE TAIL\t%p\n\n", (void*)(nf_tail)); 
- 
+  pthread_mutex_unlock(&lock);
 }
