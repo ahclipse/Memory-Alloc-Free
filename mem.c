@@ -224,6 +224,11 @@ void* Mem_Alloc_nextFit(int size)
     newHeader->length = currHeader->length - (size + sizeof(struct FreeHeader));
     currHeader->length = size;
 
+    if(nf_tail == currHeader)
+    {
+      nf_tail = newHeader;
+    }
+
     assert(currHeader->length + sizeof(struct FreeHeader) + (currHeader->next)->length == originalSize);
   }
   
@@ -233,6 +238,7 @@ void* Mem_Alloc_nextFit(int size)
     prevHeader = prevHeader->next;
     assert(prevHeader != NULL);
     assert(prevHeader != currHeader);
+    //printf("Alloc done broke%p\t%p\n",prevHeader,currHeader);
   }
   //only one in list
   if( prevHeader == currHeader)
@@ -403,7 +409,6 @@ void* Mem_Alloc_slab()
   s_head = currSlab->next;//will be NULL if last itme in list 
   //zero mem
   memset( (void *)(currSlab), '0', globalSlabSize );
-  printf("finish alloc\n");
   pthread_mutex_unlock(&lock);
   return (void *)(currSlab);
 }
@@ -413,7 +418,6 @@ int Mem_Free_slab( void * ptr)
   //Is slab aligned
   if( ( (char*)(ptr) - slabRegionStartAddr) % globalSlabSize != 0)
   {
-    printf("Bad ptr\n");
     pthread_mutex_unlock(&lock);
     return -1;
   }
@@ -450,7 +454,6 @@ int Mem_Free_slab( void * ptr)
       prev = prev->next;
       if( start == prev )
       {
-        printf("Could not find slab location in list\n");
 	pthread_mutex_unlock(&lock);
         return -1;
       }
@@ -498,9 +501,9 @@ void Mem_Dump()
   printf("%d\t%p\t%p\t%d\n------------------------\n",i, (void*)(nfstart),(void*)(nfstart->next ), nfstart->length);
   nfcurr = nfcurr->next;
   i++;
-  while( nfcurr->next != nfstart && i < 10)
+  while( nfcurr != nfstart && i < 10)
   {
-    printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(nfcurr),(void*)(nfcurr->next));
+    printf("%d\t%p\t%p%d\n-----------------------\n",i, (void*)(nfcurr),(void*)(nfcurr->next), nfcurr->length);
     nfcurr = nfcurr->next;
     i++;
   } 
