@@ -65,7 +65,6 @@ void* Mem_Init(int regionSize, int slabSize)
   }
   
   pthread_mutex_init(&lock , NULL);
-  pthread_mutex_lock(&lock);
 
   regionSize = makeMultiple16( regionSize );
   slabSize = makeMultiple16( slabSize );
@@ -235,20 +234,29 @@ void* Mem_Alloc_nextFit(int size)
     assert(prevHeader != NULL);
     assert(prevHeader != currHeader);
   }
-  prevHeader->next = currHeader->next;
-
-  if( currHeader == nf_head )
+  //only one in list
+  if( prevHeader == currHeader)
   {
-    nf_head = prevHeader->next;
+    nf_tail = NULL;
+    nf_head = NULL;
+    nf_marker = NULL;
   }
-
-  if( currHeader == nf_tail )
+  else
   {
-    nf_tail = prevHeader;
+    prevHeader->next = currHeader->next;
+
+    if( currHeader == nf_head )
+    {
+      nf_head = prevHeader->next;
+    }
+
+    if( currHeader == nf_tail )
+    {
+      nf_tail = prevHeader;
+    }
+
+    nf_marker = prevHeader->next;
   }
-
-  nf_marker = prevHeader->next;
-
   //change header of curr to be allocated
   ((struct AllocatedHeader *)currHeader)->magic = (void *)(MAGIC);
   
@@ -276,8 +284,16 @@ int Mem_Free_nextFit(void *ptr)
     return -1; 
   }
  
-  //Check if freeRequest occurs after the head in memory
-  if((char *)freeRequestA < (char *)nf_head)
+  if( nf_marker == NULL )
+  {
+    nf_marker = freeRequestF;
+    nf_tail = freeRequestF;
+    nf_head = freeRequestF;
+    freeRequestF->next = freeRequestF;
+    pthread_mutex_unlock(&lock);
+    return 0;
+  } 
+  else if((char *)freeRequestA < (char *)nf_head)//Check if freeRequest occurs after the head in memory
   {
     //Since it is before the head, make this struct the new header, and point to the old one
     freeRequestF->next = nf_head;
@@ -304,7 +320,7 @@ int Mem_Free_nextFit(void *ptr)
         pthread_mutex_unlock(&lock);
         return -1;
       }
-      search = search->next; 
+      search = search->next;
     }
     freeRequestF->next = search->next;
     search->next = freeRequestF; 
@@ -312,7 +328,7 @@ int Mem_Free_nextFit(void *ptr)
     return 0; 
   }
   //Else some error, return -1 
-  pthread_mutex_unlock(&lock);
+  //pthread_mutex_unlock(&lock);
   return -1;
 }
 /*************************************************************************************************/
@@ -354,7 +370,7 @@ int Mem_Free_slab( void * ptr)
   if( s_head == NULL)
   { 
     s_head = currSlab;
-    currSlab->next = currSlab;
+    currSlab->next = NULL;
     pthread_mutex_unlock(&lock);
     return 0;
   }
