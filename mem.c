@@ -176,11 +176,16 @@ void* Mem_Alloc_nextFit(int size)
   struct FreeHeader* currHeader = nf_marker;
   struct FreeHeader* prevHeader = currHeader;
 
+  //empty list
+  if(nf_marker == NULL)
+    return NULL;
+
   //if first node is not big enough
   if( currHeader->length < size  )
   {
     //find the first node that fits
     currHeader = currHeader->next;
+
     while( currHeader != nf_marker && currHeader->length < size  )
     {
       currHeader = currHeader->next;
@@ -190,6 +195,7 @@ void* Mem_Alloc_nextFit(int size)
     // Nothing found of the right size
     if(currHeader == nf_marker)
     {
+      printf("Nothing found\n");
       pthread_mutex_unlock(&lock);
       return NULL;
     }
@@ -219,19 +225,30 @@ void* Mem_Alloc_nextFit(int size)
     assert(prevHeader != NULL);
     assert(prevHeader != currHeader);
   }
-  prevHeader->next = currHeader->next;
 
-  if( currHeader == nf_head )
+  //if only one in list
+  if( prevHeader == currHeader)
   {
-    nf_head = prevHeader->next;
+    nf_tail = NULL;
+    nf_head = NULL;
+    nf_marker = NULL;
   }
+  else
+  {//if more than on in the list
+    prevHeader->next = currHeader->next;
 
-  if( currHeader == nf_tail )
-  {
-    nf_tail = prevHeader;
+    if( currHeader == nf_head )
+    {
+      nf_head = prevHeader->next;
+    }
+
+    if( currHeader == nf_tail )
+    {
+      nf_tail = prevHeader;
+    }
+
+    nf_marker = prevHeader->next;
   }
-
-  nf_marker = prevHeader->next;
 
   //change header of curr to be allocated
   ((struct AllocatedHeader *)currHeader)->magic = (void *)(MAGIC);
@@ -313,7 +330,7 @@ int Mem_Free_slab( void * ptr)
   if( s_head == NULL)
   { 
     s_head = currSlab;
-    currSlab->next = currSlab;
+    currSlab->next = NULL;
     pthread_mutex_unlock(&lock);
     return 0;
   }
@@ -350,28 +367,32 @@ int Mem_Free_slab( void * ptr)
 
 
 void Mem_Dump()
-{
-  assert(s_head != s_head->next); 
-
+{ 
   struct FreeHeader * start = s_head;
   struct FreeHeader * curr = start;
   int i = 0;
 
-  printf("======== START TEST ========\n");
-  printf("%d\t%p\t%p\n------------------------\n",i, (void*)(start),(void*)(start->next ));
-  curr = curr->next;
-  i++;
-  while( curr != NULL )
+  if( s_head != NULL)
   {
-    printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(curr),(void*)(curr->next));
+    printf("======== START TEST ========\n");
+    printf("%d\t%p\t%p\n------------------------\n",i, (void*)(start),(void*)(start->next ));
     curr = curr->next;
     i++;
+    while( curr != NULL )
+    {
+      printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(curr),(void*)(curr->next));
+      curr = curr->next;
+      i++;
+    }
   }
-
+  else
+  {
+    printf("Full Slab space\n");
+  }
   struct FreeHeader * nfstart = nf_head;
   struct FreeHeader * nfcurr = nfstart;
   i = 0;
-
+ 
   printf("\n======== Next Fit Free Mem ========\n");
   printf("%d\t%p\t%p\t%d\n------------------------\n",i, (void*)(nfstart),(void*)(nfstart->next ), nfstart->length);
   nfcurr = nfcurr->next;
