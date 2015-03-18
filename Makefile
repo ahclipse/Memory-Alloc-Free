@@ -1,7 +1,7 @@
 all: mem
 
 mem: mem.c mymem.h test.c
-	gcc -c -fpic mem.c -Wall -g
+	gcc -c -fpic mem.c -Wall -g -pthread
 	gcc -shared -o libmem.so mem.o
 	export LD_LIBRARY_PATH=.
 	gcc -lmem -L. -o tester test.c -Wall -g

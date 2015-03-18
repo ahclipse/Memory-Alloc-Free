@@ -7,6 +7,7 @@
 #include <string.h>
 #include "mymem.h"
 #include <assert.h>
+#include <pthread.h>
 
 void init_slab( int, void*);
 void* Mem_Alloc_slab();
@@ -33,6 +34,9 @@ char* slabRegionStartAddr;
 int globalSlabSize;
 
 int totalMemSize;
+
+//Lock for concurrent processes 
+pthread_mutex_t lock;
 
 void* Mem_Init(int regionSize, int slabSize)
 {
@@ -119,9 +123,20 @@ void* Mem_Alloc(int size)
     return NULL;
 
   if( size == globalSlabSize)
-    return Mem_Alloc_slab();
+  {
+    pthread_mutex_lock(&lock);
+    return Mem_Alloc_slab(); 
+  }
   else
+  {
+    //Make sure the rest of requested memory is 16 byte aligned 
+    if(size % 16 != 0 )
+    {
+      size = size + (16 - (size % 16)); 
+    }
+    pthread_mutex_lock(&lock);
     return Mem_Alloc_nextFit(size);
+  }
 }
 
 int Mem_Free(void *ptr){
@@ -130,11 +145,16 @@ int Mem_Free(void *ptr){
     printf("SEGFAULT\n");
     return -1;
   }
-
   if( (char *)(ptr) >= nextRegionStartAddr )
+  {
+    pthread_mutex_lock(&lock);
     return Mem_Free_nextFit(ptr);
+  }
   else
+  {
+    pthread_mutex_lock(&lock);
     return Mem_Free_slab(ptr);
+  }
 }
 
 void* Mem_Alloc_nextFit(int size)
@@ -157,6 +177,7 @@ void* Mem_Alloc_nextFit(int size)
     // Nothing found of the right size
     if(currHeader == nf_marker)
     {
+      pthread_mutex_unlock(&lock);
       return NULL;
     }
   }
@@ -191,6 +212,7 @@ void* Mem_Alloc_nextFit(int size)
   ((struct AllocatedHeader *)currHeader)->magic = (void *)(MAGIC);
 
   //return acutal address beyond block header
+  pthread_mutex_unlock(&lock);
   return currHeader +1;//becasuse the header sizes are the same
 }
 
@@ -203,8 +225,9 @@ int Mem_Free_nextFit(void *ptr)
   struct AllocatedHeader * freeRequest = (struct AllocatedHeader *)(nPtr); 
 
   //Is given pointer a valid AllocatedHeader???
-  if(freeRequest->magic != MAGIC)
+  if((freeRequest->magic) != (void *)MAGIC)
   {
+    pthread_mutex_unlock(&lock);
     return -1; 
   }
 
@@ -212,9 +235,9 @@ int Mem_Free_nextFit(void *ptr)
   struct FreeHeader * start = s_head;
  
   //Check if freeRequest occurs after the head in memory
-  if(freeRequest > start)
+  if(freeRequest > (struct AllocatedHeader *)start)
   {
-
+    
 
 
 
@@ -226,8 +249,10 @@ int Mem_Free_nextFit(void *ptr)
 
 
   } 
+  pthread_mutex_unlock(&lock);
   return -1;
 }
+/*************************************************************************************************/
 
 void* Mem_Alloc_slab()
 {
@@ -242,6 +267,7 @@ void* Mem_Alloc_slab()
   memset( (void *)(currSlab), '0', globalSlabSize );
   assert( NULL != s_head);
   printf("finish alloc\n");
+  pthread_mutex_unlock(&lock);
   return (void *)(currSlab);
 }
 
@@ -251,12 +277,15 @@ int Mem_Free_slab( void * ptr)
   if( ( (char*)(ptr) - slabRegionStartAddr) % globalSlabSize != 0)
   {
     printf("Bad ptr\n");
+    pthread_mutex_unlock(&lock);
     return -1;
   }
 
   if( (char *)(ptr) < slabRegionStartAddr || (char *)(ptr) >= nextRegionStartAddr )
+  {
+    pthread_mutex_unlock(&lock);
     return -1;
-
+  }
 
   struct FreeHeader * currSlab = (struct FreeHeader *)(ptr);
   //If we were empty before
@@ -264,12 +293,14 @@ int Mem_Free_slab( void * ptr)
   { 
     s_head = currSlab;
     currSlab->next = currSlab;
+    pthread_mutex_unlock(&lock);
     return 0;
   }
   else if( currSlab < s_head)//lower address than current lowest address
   {
     currSlab->next = s_head;
     s_head = ptr;
+    pthread_mutex_unlock(&lock);
     return 0;
   }
   else
@@ -283,12 +314,14 @@ int Mem_Free_slab( void * ptr)
       if( start == prev )
       {
         printf("Could not find slab location in list\n");
+	pthread_mutex_unlock(&lock);
         return -1;
       }
     }
 
     currSlab->next = prev->next;
     prev->next = currSlab;
+    pthread_mutex_unlock(&lock);
     return 0; 
   }
 
@@ -312,5 +345,23 @@ void Mem_Dump()
     printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(curr),(void*)(curr->next));
     curr = curr->next;
     i++;
+  }
+
+  struct FreeHeader * nfstart = nf_head;
+  struct FreeHeader * nfcurr = nfstart;
+  i = 0;
+
+  printf("\n======== Next Fit Free Mem ========\n");
+  printf("%d\t%p\t%p\t%d\n------------------------\n",i, (void*)(nfstart),(void*)(nfstart->next ), nfstart->length);
+  nfcurr = nfcurr->next;
+  i++;
+  while( nfcurr->next != nfstart )
+  {
+    printf("%d\t%p\t%p\n-----------------------\n",i, (void*)(nfcurr),(void*)(nfcurr->next));
+    nfcurr = nfcurr->next;
+    i++;
   } 
+
+  printf("\n%d\n", (nfcurr->length)); 
+ 
 }
