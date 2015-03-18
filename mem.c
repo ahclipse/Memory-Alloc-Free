@@ -130,7 +130,6 @@ void* Mem_Init(int regionSize, int slabSize)
   nf_marker->next = nf_marker;
   
   assert( s_head != s_head->next);
-  printf("init complete\n");
   pthread_mutex_unlock(&lock);
   return memStart;
 }
