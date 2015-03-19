@@ -65,6 +65,7 @@ void* Mem_Init(int regionSize, int slabSize)
   }
   
   pthread_mutex_init(&lock , NULL);
+  pthread_mutex_lock(&lock);
 
   regionSize = makeMultiple16( regionSize );
   slabSize = makeMultiple16( slabSize );
@@ -273,28 +274,43 @@ void* Mem_Alloc_nextFit(int size)
 
 /****************************************************************************************************/
 
-void coalesce(struct FreeHeader * prev, struct FreeHeader * curr, struct FreeHeader * next)
+void coalesce3(struct FreeHeader * prev, struct FreeHeader * curr, struct FreeHeader * next)
 {
-  
-  if( (char *)(prev + 1)+prev->length == (char *)curr && (char *)(curr + 1)+curr->length == (char *)(next) )
+  assert(prev < next);
+  assert(curr < next);
+  assert(prev < curr); 
+  if( (char *)(prev + 1 )+prev->length == (char *)curr && (char *)(curr + 1 )+curr->length == (char *)(next) )
   {
      //coalesce prev, curr, and next
+     //
+     printf("coalesce all\t%p\n",nf_tail);
      prev->next = next->next;
      prev->length = (2*sizeof(struct FreeHeader)) + curr->length + next->length + prev->length;
-     if(  next == nf_tail || curr == nf_tail)
-     {
+     assert( prev != next);
+     if( prev == prev->next )
+     { 
        nf_tail = prev;
-     }  
-
-     if( next == nf_marker)
-     {
+       nf_head = prev;
        nf_marker = prev;
+     }
+     else
+     {
+       if(  next == nf_tail || curr == nf_tail)
+       {
+           nf_tail = prev;
+       }  
+
+       if( next == nf_marker)
+       {
+         nf_marker = prev;
+       }
      }
   }
   else if( (char *)(prev + 1)+prev->length == (char *)curr)
   {
+    printf("coalesce 1\n");
     //coalsce prev and curr
-    prev->next == curr->next;
+    prev->next = curr->next;
     prev->length = sizeof( struct FreeHeader ) + curr->length + prev->length;
 
     if(  curr == nf_tail)
@@ -304,14 +320,15 @@ void coalesce(struct FreeHeader * prev, struct FreeHeader * curr, struct FreeHea
   }
   else if( (char *)(curr + 1)+curr->length == (char *)(next) )
   {
+    printf("coalesce 2\n");
     //coalesce curr and next
     curr->next = next->next;
     curr->length = sizeof( struct FreeHeader) + curr->length + next->length;
 
     if(  next == nf_tail )
-     {
-       nf_tail = curr;
-     }  
+    {
+      nf_tail = curr;
+    }  
 
      if( next == nf_marker)
      {
@@ -323,6 +340,30 @@ void coalesce(struct FreeHeader * prev, struct FreeHeader * curr, struct FreeHea
     //coalesce none
   }
   return;
+}
+
+void coalesce2( struct FreeHeader * prev, struct FreeHeader * curr )
+{
+  assert(curr != nf_head);
+  if( (char *)(prev + 1)+prev->length == (char *)curr)
+  {
+    printf("coalesce 2-1\n");
+    //coalsce prev and curr
+    prev->next = curr->next;
+    prev->length = sizeof( struct FreeHeader ) + curr->length + prev->length;
+
+    if(  curr == nf_tail)
+    {
+      nf_tail = prev;
+    }  
+
+    if( curr == nf_marker)
+    {
+      nf_marker = prev;
+    }
+  }
+  return;
+
 }
 
 int Mem_Free_nextFit(void *ptr)
@@ -357,7 +398,7 @@ int Mem_Free_nextFit(void *ptr)
     freeRequestF->next = nf_head;
     nf_head = freeRequestF;
     nf_tail->next = freeRequestF; 
-    coalesce(nf_tail, freeRequestF, freeRequestF->next);
+    coalesce2(  freeRequestF, freeRequestF->next);
     pthread_mutex_unlock(&lock);
     return 0;      
   }
@@ -365,8 +406,9 @@ int Mem_Free_nextFit(void *ptr)
   {
     freeRequestF->next = nf_head;
     nf_tail->next = freeRequestF;
-    coalesce( nf_tail, freeRequestF, freeRequestF->next); 
+    struct FreeHeader * oldTail = nf_tail;
     nf_tail = freeRequestF; 
+    coalesce2( oldTail, freeRequestF ); 
     pthread_mutex_unlock(&lock);
     return 0;         
   } 
@@ -384,7 +426,7 @@ int Mem_Free_nextFit(void *ptr)
     }
     freeRequestF->next = search->next;
     search->next = freeRequestF; 
-    coalesce( search, freeRequestF, freeRequestF->next);
+    coalesce3( search, freeRequestF, freeRequestF->next);
     pthread_mutex_unlock(&lock);
     return 0; 
   }
@@ -492,6 +534,12 @@ void Mem_Dump()
     }
   }
 
+  if( nf_head == NULL)
+  {
+    printf("NO free NF\n");
+    return;
+  }
+
   struct FreeHeader * nfstart = nf_head;
   struct FreeHeader * nfcurr = nfstart;
   i = 0;
@@ -502,7 +550,7 @@ void Mem_Dump()
   i++;
   while( nfcurr != nfstart && i < 10)
   {
-    printf("%d\t%p\t%p%d\n-----------------------\n",i, (void*)(nfcurr),(void*)(nfcurr->next), nfcurr->length);
+    printf("%d\t%p\t%p\t%d\n-----------------------\n",i, (void*)(nfcurr),(void*)(nfcurr->next), nfcurr->length);
     nfcurr = nfcurr->next;
     i++;
   } 
